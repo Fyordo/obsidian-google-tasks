@@ -192,17 +192,26 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
       }
 
       /* ---- fetch tasks ---- */
+      // Always fetch all tasks (including completed) from API
       let tasks = await this.api.getTasks(targetListId, true);
 
-      /* ---- filter by date range ---- */
+      /* ---- filter by completion status ---- */
+      if (params.showCompleted === "false") {
+        // Show only incomplete tasks
+        tasks = tasks.filter((task) => task.status !== "completed");
+      } else if (params.showCompleted === "true") {
+        // Show only completed tasks
+        tasks = tasks.filter((task) => task.status === "completed");
+      }
+      // else "all" — show everything
+
+      /* ---- build tree first ---- */
+      const fullTree = GoogleTasksApi.buildTree(tasks);
+
+      /* ---- filter tree by date range (keeping subtasks) ---- */
+      let filteredTree = fullTree;
       if (params.from || params.to) {
-        tasks = tasks.filter((task) => {
-          if (!task.due) return false; // skip tasks without due date
-          const dueDate = new Date(task.due);
-          if (params.from && dueDate < params.from) return false;
-          if (params.to && dueDate > params.to) return false;
-          return true;
-        });
+        filteredTree = this.filterTreeByDate(fullTree, params.from, params.to);
       }
 
       container.empty();
@@ -221,15 +230,14 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
       refreshBtn.addEventListener("click", () => this.renderTasksBlock(source, el, ctx));
 
       /* empty */
-      if (tasks.length === 0) {
+      if (filteredTree.length === 0) {
         container.createDiv({ cls: "ogt-empty", text: "Нет задач" });
         return;
       }
 
-      /* build tree & render */
-      const tree = GoogleTasksApi.buildTree(tasks);
+      /* render */
       const list = container.createEl("div", { cls: "ogt-list" });
-      this.renderNodes(list, tree, 0);
+      this.renderNodes(list, filteredTree, 0);
 
       // persist tokens in case they were refreshed
       await this.persistTokens();
@@ -238,6 +246,61 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
       const msg = err instanceof Error ? err.message : String(err);
       container.createDiv({ cls: "ogt-error", text: `Ошибка: ${msg}` });
     }
+  }
+
+  /**
+   * Filter tree by date range.
+   * If a parent task matches the date filter, all its subtasks are included.
+   */
+  private filterTreeByDate(
+    nodes: TaskNode[],
+    from: Date | undefined,
+    to: Date | undefined,
+  ): TaskNode[] {
+    const filtered: TaskNode[] = [];
+
+    for (const node of nodes) {
+      // Check if this task matches the date filter
+      let matches = false;
+      if (node.task.due) {
+        const dueDate = new Date(node.task.due);
+        matches = true;
+        if (from && dueDate < from) matches = false;
+        if (to && dueDate > to) matches = false;
+      }
+
+      if (matches) {
+        // Include this task and ALL its subtasks (recursively)
+        filtered.push(node);
+      } else {
+        // This task doesn't match, but check if any children match
+        const filteredChildren = this.filterTreeByDate(node.children, from, to);
+        if (filteredChildren.length > 0) {
+          // Some children match — include this task with filtered children
+          filtered.push({
+            task: node.task,
+            children: filteredChildren,
+          });
+        }
+      }
+    }
+
+    return filtered;
+  }
+
+  /** Attach click handlers to internal links */
+  private attachLinkHandlers(el: HTMLElement) {
+    const links = el.querySelectorAll("a.internal-link");
+    links.forEach((link) => {
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        const href = link.getAttribute("data-href");
+        if (href) {
+          // Open the note in Obsidian
+          this.app.workspace.openLinkText(href, "", false);
+        }
+      });
+    });
   }
 
   /** Recursively render task tree nodes */
@@ -261,11 +324,14 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
 
       const titleEl = body.createDiv({ cls: "ogt-task-title" });
       if (task.status === "completed") titleEl.addClass("is-completed");
-      titleEl.textContent = task.title;
+      titleEl.innerHTML = parseSimpleMarkdown(task.title);
+      this.attachLinkHandlers(titleEl);
 
       /* notes */
       if (task.notes) {
-        body.createDiv({ cls: "ogt-task-notes", text: task.notes });
+        const notesEl = body.createDiv({ cls: "ogt-task-notes" });
+        notesEl.innerHTML = parseSimpleMarkdown(task.notes);
+        this.attachLinkHandlers(notesEl);
       }
 
       /* due date */
@@ -294,6 +360,7 @@ interface BlockParams {
   from?: Date;
   to?: Date;
   listId?: string;
+  showCompleted?: "all" | "true" | "false";
 }
 
 /**
@@ -304,9 +371,12 @@ interface BlockParams {
  *   date: {{filename}}  — auto-extract date from filename (DD.MM.YYYY.md)
  *   date: today         — use today's date
  *   list: My List Name  — filter by list name or ID
+ *   completed: all/true/false — filter completed tasks (default: false)
  */
 function parseBlockParams(source: string, filePath: string): BlockParams {
-  const params: BlockParams = {};
+  const params: BlockParams = {
+    showCompleted: "false", // default: hide completed tasks
+  };
 
   const lines = source.split("\n");
   for (const line of lines) {
@@ -314,7 +384,7 @@ function parseBlockParams(source: string, filePath: string): BlockParams {
     if (!trimmed) continue;
 
     // Match "key: value"
-    const match = trimmed.match(/^(from|to|date|list)\s*:\s*(.+)$/i);
+    const match = trimmed.match(/^(from|to|date|list|completed)\s*:\s*(.+)$/i);
     if (!match) continue;
 
     const key = match[1].toLowerCase();
@@ -323,6 +393,16 @@ function parseBlockParams(source: string, filePath: string): BlockParams {
     if (key === "list") {
       // Store list name/id for later resolution
       params.listId = value;
+    } else if (key === "completed") {
+      // Parse completed mode
+      const lower = value.toLowerCase();
+      if (lower === "all" || lower === "both") {
+        params.showCompleted = "all";
+      } else if (lower === "true" || lower === "yes" || lower === "1") {
+        params.showCompleted = "true";
+      } else {
+        params.showCompleted = "false";
+      }
     } else if (key === "date") {
       // Special handling for "date" parameter
       let targetDate: Date | null = null;
@@ -410,6 +490,52 @@ function parseFlexibleDate(str: string): Date | null {
     return date;
   }
   return null;
+}
+
+/* ================================================================
+   Markdown parsing
+   ================================================================ */
+
+/**
+ * Parse simple Markdown formatting and return HTML string.
+ * Supports:
+ *   - **bold** or __bold__
+ *   - *italic* or _italic_
+ *   - [[wikilink]]
+ *   - [link text](url)
+ *   - `code`
+ */
+function parseSimpleMarkdown(text: string): string {
+  let result = text;
+
+  // Escape HTML first
+  result = result
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  // Bold: **text** or __text__
+  result = result.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  result = result.replace(/__(.+?)__/g, "<strong>$1</strong>");
+
+  // Italic: *text* or _text_ (but not inside words)
+  result = result.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  result = result.replace(/(?<!\w)_(.+?)_(?!\w)/g, "<em>$1</em>");
+
+  // Wikilinks: [[Page Name]]
+  result = result.replace(/\[\[(.+?)\]\]/g, (match, linkText) => {
+    return `<a class="internal-link" data-href="${linkText}">${linkText}</a>`;
+  });
+
+  // Markdown links: [text](url)
+  result = result.replace(/\[(.+?)\]\((.+?)\)/g, (match, text, url) => {
+    return `<a href="${url}" class="external-link" target="_blank" rel="noopener">${text}</a>`;
+  });
+
+  // Inline code: `code`
+  result = result.replace(/`(.+?)`/g, "<code>$1</code>");
+
+  return result;
 }
 
 /* ================================================================
@@ -697,9 +823,19 @@ class GoogleTasksSettingTab extends PluginSettingTab {
       '<code style="display:block;padding:4px 8px;background:var(--background-secondary);border-radius:4px;margin:4px 0;">' +
       "```g-tasks<br>date: today<br>```" +
       "</code><br>" +
+      "<b>Фильтр по статусу выполнения:</b><br>" +
+      '<code style="display:block;padding:4px 8px;background:var(--background-secondary);border-radius:4px;margin:4px 0;">' +
+      "```g-tasks<br>completed: false  # только невыполненные<br>```" +
+      "</code>" +
+      '<code style="display:block;padding:4px 8px;background:var(--background-secondary);border-radius:4px;margin:4px 0;">' +
+      "```g-tasks<br>completed: true   # только выполненные<br>```" +
+      "</code>" +
+      '<code style="display:block;padding:4px 8px;background:var(--background-secondary);border-radius:4px;margin:4px 0;">' +
+      "```g-tasks<br>completed: all    # все задачи<br>```" +
+      "</code><br>" +
       "<b>Комбинация параметров:</b><br>" +
       '<code style="display:block;padding:4px 8px;background:var(--background-secondary);border-radius:4px;margin:4px 0;">' +
-      "```g-tasks<br>list: Работа<br>date: {{filename}}<br>```" +
+      "```g-tasks<br>list: Работа<br>date: {{filename}}<br>completed: all<br>```" +
       "</code>";
   }
 }

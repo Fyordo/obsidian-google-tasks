@@ -112,6 +112,49 @@
   word-break: break-word;
 }
 
+/* ---- markdown formatting ---- */
+.ogt-task-title strong,
+.ogt-task-notes strong {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.ogt-task-title em,
+.ogt-task-notes em {
+  font-style: italic;
+}
+
+.ogt-task-title code,
+.ogt-task-notes code {
+  font-family: var(--font-monospace);
+  background: var(--background-primary-alt);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.ogt-task-title a,
+.ogt-task-notes a {
+  color: var(--text-accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ogt-task-title a:hover,
+.ogt-task-notes a:hover {
+  text-decoration: underline;
+}
+
+.ogt-task-title a.internal-link,
+.ogt-task-notes a.internal-link {
+  color: var(--link-color);
+}
+
+.ogt-task-title a.external-link,
+.ogt-task-notes a.external-link {
+  color: var(--link-external-color);
+}
+
 .ogt-task-due {
   display: inline-block;
   font-size: 0.8em;

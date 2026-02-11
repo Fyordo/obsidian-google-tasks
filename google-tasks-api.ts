@@ -73,7 +73,7 @@ export class GoogleTasksApi {
   ): Promise<GoogleTask[]> {
     const params = new URLSearchParams({
       showCompleted: String(showCompleted),
-      showHidden: "false",
+      showHidden: String(showCompleted), // Also show hidden completed tasks
       maxResults: "100",
     });
     const data = await this.request<{ items?: GoogleTask[] }>(
