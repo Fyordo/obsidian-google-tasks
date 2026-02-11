@@ -205,13 +205,15 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
       }
       // else "all" — show everything
 
-      /* ---- build tree first ---- */
-      const fullTree = GoogleTasksApi.buildTree(tasks);
-
-      /* ---- filter tree by date range (keeping subtasks) ---- */
-      let filteredTree = fullTree;
+      /* ---- filter by date range ---- */
       if (params.from || params.to) {
-        filteredTree = this.filterTreeByDate(fullTree, params.from, params.to);
+        tasks = tasks.filter((task) => {
+          if (!task.due) return false; // skip tasks without due date
+          const dueDate = new Date(task.due);
+          if (params.from && dueDate < params.from) return false;
+          if (params.to && dueDate > params.to) return false;
+          return true;
+        });
       }
 
       container.empty();
@@ -230,14 +232,15 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
       refreshBtn.addEventListener("click", () => this.renderTasksBlock(source, el, ctx));
 
       /* empty */
-      if (filteredTree.length === 0) {
+      if (tasks.length === 0) {
         container.createDiv({ cls: "ogt-empty", text: "Нет задач" });
         return;
       }
 
-      /* render */
+      /* build tree & render */
+      const tree = GoogleTasksApi.buildTree(tasks);
       const list = container.createEl("div", { cls: "ogt-list" });
-      this.renderNodes(list, filteredTree, 0);
+      this.renderNodes(list, tree, 0);
 
       // persist tokens in case they were refreshed
       await this.persistTokens();
@@ -246,46 +249,6 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
       const msg = err instanceof Error ? err.message : String(err);
       container.createDiv({ cls: "ogt-error", text: `Ошибка: ${msg}` });
     }
-  }
-
-  /**
-   * Filter tree by date range.
-   * If a parent task matches the date filter, all its subtasks are included.
-   */
-  private filterTreeByDate(
-    nodes: TaskNode[],
-    from: Date | undefined,
-    to: Date | undefined,
-  ): TaskNode[] {
-    const filtered: TaskNode[] = [];
-
-    for (const node of nodes) {
-      // Check if this task matches the date filter
-      let matches = false;
-      if (node.task.due) {
-        const dueDate = new Date(node.task.due);
-        matches = true;
-        if (from && dueDate < from) matches = false;
-        if (to && dueDate > to) matches = false;
-      }
-
-      if (matches) {
-        // Include this task and ALL its subtasks (recursively)
-        filtered.push(node);
-      } else {
-        // This task doesn't match, but check if any children match
-        const filteredChildren = this.filterTreeByDate(node.children, from, to);
-        if (filteredChildren.length > 0) {
-          // Some children match — include this task with filtered children
-          filtered.push({
-            task: node.task,
-            children: filteredChildren,
-          });
-        }
-      }
-    }
-
-    return filtered;
   }
 
   /** Attach click handlers to internal links */
