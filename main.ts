@@ -19,12 +19,14 @@ interface PluginSettings {
   clientId: string;
   clientSecret: string;
   tokens: TokenData | null;
+  autoRefreshInterval: number; // seconds, 0 = disabled
 }
 
 const DEFAULT_SETTINGS: PluginSettings = {
   clientId: "",
   clientSecret: "",
   tokens: null,
+  autoRefreshInterval: 0,
 };
 
 /* ================================================================
@@ -35,6 +37,8 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
   settings: PluginSettings;
   auth: GoogleAuth;
   api: GoogleTasksApi;
+  private autoRefreshIntervalId: number | null = null;
+  private activeBlocks: Map<HTMLElement, { source: string; ctx: MarkdownPostProcessorContext }> = new Map();
 
   constructor(app: App, manifest: PluginManifest) {
     super(app, manifest);
@@ -66,10 +70,13 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
 
     /* ---- settings tab ---- */
     this.addSettingTab(new GoogleTasksSettingTab(this.app, this));
+
+    /* ---- start auto-refresh if enabled ---- */
+    this.startAutoRefresh();
   }
 
   onunload() {
-    // cleanup if needed
+    this.stopAutoRefresh();
   }
 
   /* ---- settings persistence ---- */
@@ -88,6 +95,34 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
     await this.saveSettings();
   }
 
+  /* ---- auto-refresh ---- */
+
+  startAutoRefresh() {
+    this.stopAutoRefresh();
+    
+    if (this.settings.autoRefreshInterval <= 0) {
+      return; // auto-refresh disabled
+    }
+
+    const intervalMs = this.settings.autoRefreshInterval * 1000;
+    this.autoRefreshIntervalId = window.setInterval(() => {
+      this.refreshAllBlocks();
+    }, intervalMs);
+  }
+
+  stopAutoRefresh() {
+    if (this.autoRefreshIntervalId !== null) {
+      window.clearInterval(this.autoRefreshIntervalId);
+      this.autoRefreshIntervalId = null;
+    }
+  }
+
+  refreshAllBlocks() {
+    for (const [el, { source, ctx }] of this.activeBlocks.entries()) {
+      this.renderTasksBlock(source, el, ctx);
+    }
+  }
+
   /* ==============================================================
      Render the ```g-tasks block
      ============================================================== */
@@ -97,6 +132,9 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
     el: HTMLElement,
     ctx: MarkdownPostProcessorContext,
   ) {
+    // Register this block for auto-refresh
+    this.activeBlocks.set(el, { source, ctx });
+
     el.empty();
     const container = el.createDiv({ cls: "ogt-container" });
 
@@ -571,6 +609,33 @@ class GoogleTasksSettingTab extends PluginSettingTab {
         // mask the secret like a password
         text.inputEl.type = "password";
       });
+
+    /* ---- general settings ---- */
+    containerEl.createEl("h3", { text: "Общие настройки" });
+
+    new Setting(containerEl)
+      .setName("Автообновление")
+      .setDesc(
+        "Интервал автообновления списков задач в секундах. Оставьте 0, чтобы отключить автообновление.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("0")
+          .setValue(String(this.plugin.settings.autoRefreshInterval))
+          .onChange(async (value) => {
+            const num = parseInt(value, 10);
+            if (!isNaN(num) && num >= 0) {
+              this.plugin.settings.autoRefreshInterval = num;
+              await this.plugin.saveSettings();
+              this.plugin.startAutoRefresh(); // restart timer
+              if (num > 0) {
+                new Notice(`Автообновление: каждые ${num} сек.`);
+              } else {
+                new Notice("Автообновление отключено.");
+              }
+            }
+          }),
+      );
 
     /* ---- auth section ---- */
     containerEl.createEl("h3", { text: "Авторизация" });
