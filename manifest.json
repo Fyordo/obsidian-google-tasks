@@ -1,0 +1,10 @@
+{
+  "id": "obsidian-google-tasks",
+  "name": "Obsidian Google Tasks",
+  "version": "0.0.1",
+  "minAppVersion": "1.5.0",
+  "description": "Integrate Google Tasks with your Obsidian vault.",
+  "author": "Your Name",
+  "authorUrl": "https://example.com",
+  "isDesktopOnly": false
+}
