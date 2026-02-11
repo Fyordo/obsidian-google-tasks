@@ -240,7 +240,7 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
       /* build tree & render */
       const tree = GoogleTasksApi.buildTree(tasks);
       const list = container.createEl("div", { cls: "ogt-list" });
-      this.renderNodes(list, tree, 0);
+      this.renderNodes(list, tree, 0, targetListId);
 
       // persist tokens in case they were refreshed
       await this.persistTokens();
@@ -267,7 +267,7 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
   }
 
   /** Recursively render task tree nodes */
-  private renderNodes(parentEl: HTMLElement, nodes: TaskNode[], depth: number) {
+  private renderNodes(parentEl: HTMLElement, nodes: TaskNode[], depth: number, listId: string) {
     for (const node of nodes) {
       const { task } = node;
 
@@ -307,9 +307,18 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
         }
       }
 
+      /* open button */
+      const openBtn = row.createEl("button", { cls: "ogt-open-btn" });
+      openBtn.innerHTML = "↗";
+      openBtn.title = "Открыть в Google Tasks";
+      openBtn.addEventListener("click", () => {
+        const url = `https://tasks.google.com/task/${encodeURIComponent(task.id)}?list=${encodeURIComponent(listId)}`;
+        window.open(url, "_blank");
+      });
+
       /* subtasks */
       if (node.children.length > 0) {
-        this.renderNodes(parentEl, node.children, depth + 1);
+        this.renderNodes(parentEl, node.children, depth + 1, listId);
       }
     }
   }
