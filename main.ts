@@ -254,7 +254,7 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
       /* build tree & render */
       const tree = GoogleTasksApi.buildTree(tasks);
       const list = container.createEl("div", { cls: "ogt-list" });
-      this.renderNodes(list, tree, 0, targetListId);
+      this.renderNodes(list, tree, 0, targetListId, source, ctx);
 
       // persist tokens in case they were refreshed
       await this.persistTokens();
@@ -281,7 +281,14 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
   }
 
   /** Recursively render task tree nodes */
-  private renderNodes(parentEl: HTMLElement, nodes: TaskNode[], depth: number, listId: string) {
+  private renderNodes(
+    parentEl: HTMLElement,
+    nodes: TaskNode[],
+    depth: number,
+    listId: string,
+    source: string,
+    ctx: MarkdownPostProcessorContext,
+  ) {
     for (const node of nodes) {
       const { task } = node;
 
@@ -361,6 +368,23 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
         window.open(url, "_blank");
       });
 
+      /* edit button */
+      const editBtn = row.createEl("button", { cls: "ogt-edit-btn" });
+      editBtn.innerHTML = "✎";
+      editBtn.title = "Редактировать задачу";
+      editBtn.addEventListener("click", () => {
+        // Найти source и ctx из активных блоков
+        for (const [blockEl, data] of this.activeBlocks.entries()) {
+          if (blockEl.contains(parentEl)) {
+            new EditTaskModal(this.app, this, listId, task, () => {
+              // Перерисовываем весь блок после редактирования
+              this.renderTasksBlock(data.source, blockEl, data.ctx);
+            }).open();
+            break;
+          }
+        }
+      });
+
       /* delete button */
       const deleteBtn = row.createEl("button", { cls: "ogt-delete-btn" });
       deleteBtn.innerHTML = "✕";
@@ -385,7 +409,7 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
 
       /* subtasks */
       if (node.children.length > 0) {
-        this.renderNodes(parentEl, node.children, depth + 1, listId);
+        this.renderNodes(parentEl, node.children, depth + 1, listId, source, ctx);
       }
     }
   }
@@ -854,6 +878,176 @@ class AddTaskModal extends Modal {
         statusEl.textContent = `Ошибка: ${msg}`;
         statusEl.style.color = "var(--text-error)";
         createBtn.removeAttribute("disabled");
+        cancelBtn.removeAttribute("disabled");
+      }
+    });
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+/* ================================================================
+   Edit Task Modal
+   ================================================================ */
+
+class EditTaskModal extends Modal {
+  private plugin: ObsidianGoogleTasksPlugin;
+  private listId: string;
+  private task: GoogleTask;
+  private onUpdated: () => void;
+
+  constructor(
+    app: App,
+    plugin: ObsidianGoogleTasksPlugin,
+    listId: string,
+    task: GoogleTask,
+    onUpdated: () => void,
+  ) {
+    super(app);
+    this.plugin = plugin;
+    this.listId = listId;
+    this.task = task;
+    this.onUpdated = onUpdated;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl("h3", { text: "Редактировать задачу Google Tasks" });
+
+    const titleInput = contentEl.createEl("input", {
+      type: "text",
+    }) as HTMLInputElement;
+    titleInput.placeholder = "Название задачи";
+    titleInput.value = this.task.title;
+    titleInput.style.width = "100%";
+    titleInput.style.marginBottom = "8px";
+
+    // Date input
+    const dateInput = contentEl.createEl("input", {
+      type: "date",
+    }) as HTMLInputElement;
+    dateInput.style.width = "100%";
+    dateInput.style.marginBottom = "6px";
+
+    // Time input (optional)
+    const timeInput = contentEl.createEl("input", {
+      type: "time",
+    }) as HTMLInputElement;
+    timeInput.style.width = "100%";
+    timeInput.style.marginBottom = "8px";
+
+    // Pre-fill date and time from task
+    if (this.task.due) {
+      const dueDate = new Date(this.task.due);
+      const yyyy = dueDate.getFullYear();
+      const mm = String(dueDate.getMonth() + 1).padStart(2, "0");
+      const dd = String(dueDate.getDate()).padStart(2, "0");
+      dateInput.value = `${yyyy}-${mm}-${dd}`;
+
+      // Extract time if present
+      const hours = dueDate.getHours();
+      const minutes = dueDate.getMinutes();
+      if (hours !== 0 || minutes !== 0) {
+        timeInput.value = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+      }
+    } else {
+      // Default to today if no due date
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, "0");
+      const dd = String(today.getDate()).padStart(2, "0");
+      dateInput.value = `${yyyy}-${mm}-${dd}`;
+    }
+
+    const notesInput = contentEl.createEl("textarea") as HTMLTextAreaElement;
+    notesInput.placeholder = "Описание (необязательно)";
+    notesInput.value = this.task.notes || "";
+    notesInput.style.width = "100%";
+    notesInput.style.minHeight = "60px";
+    notesInput.style.marginBottom = "12px";
+
+    const infoEl = contentEl.createDiv({ cls: "setting-item-description" });
+    infoEl.textContent = "Измените данные задачи. Чтобы убрать дату, очистите поле даты.";
+
+    const statusEl = contentEl.createDiv();
+
+    const btnRow = contentEl.createDiv();
+    btnRow.style.display = "flex";
+    btnRow.style.justifyContent = "flex-end";
+    btnRow.style.gap = "8px";
+
+    const cancelBtn = btnRow.createEl("button", { text: "Отмена" });
+    cancelBtn.addEventListener("click", () => this.close());
+
+    const saveBtn = btnRow.createEl("button", {
+      text: "Сохранить",
+      cls: "mod-cta",
+    });
+
+    saveBtn.addEventListener("click", async () => {
+      const title = titleInput.value.trim();
+      const notes = notesInput.value.trim();
+
+      if (!title) {
+        statusEl.textContent = "Введите название задачи.";
+        statusEl.style.color = "var(--text-error)";
+        return;
+      }
+
+      saveBtn.setAttr("disabled", "true");
+      cancelBtn.setAttr("disabled", "true");
+      statusEl.textContent = "Сохранение изменений…";
+      statusEl.style.color = "var(--text-muted)";
+
+      try {
+        let due: string | null | undefined;
+        const dateStr = dateInput.value.trim();
+        const timeStr = timeInput.value.trim();
+
+        if (dateStr) {
+          const [y, m, d] = dateStr.split("-").map((v) => parseInt(v, 10));
+          if (!Number.isNaN(y) && !Number.isNaN(m) && !Number.isNaN(d)) {
+            let hours: number;
+            let minutes: number;
+            if (timeStr) {
+              const [h, min] = timeStr.split(":").map((v) => parseInt(v, 10));
+              if (!Number.isNaN(h) && !Number.isNaN(min)) {
+                hours = h;
+                minutes = min;
+              } else {
+                hours = 12;
+                minutes = 0;
+              }
+            } else {
+              hours = 12;
+              minutes = 0;
+            }
+            const local = new Date(y, m - 1, d, hours, minutes, 0);
+            due = local.toISOString();
+          }
+        } else {
+          // Если дата очищена, удаляем due
+          due = null;
+        }
+
+        await this.plugin.api.updateTask(this.listId, this.task.id, {
+          title,
+          notes: notes || undefined,
+          due: due === null ? null : due,
+        });
+
+        new Notice("Задача обновлена.");
+        this.onUpdated();
+        this.close();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        statusEl.textContent = `Ошибка: ${msg}`;
+        statusEl.style.color = "var(--text-error)";
+        saveBtn.removeAttribute("disabled");
         cancelBtn.removeAttribute("disabled");
       }
     });

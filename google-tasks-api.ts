@@ -133,6 +133,30 @@ export class GoogleTasksApi {
   }
 
   /**
+   * Update task fields (title, notes, due date).
+   */
+  async updateTask(
+    taskListId: string,
+    taskId: string,
+    updates: {
+      title?: string;
+      notes?: string;
+      due?: string | null; // RFC 3339, или null для удаления даты
+    },
+  ): Promise<GoogleTask> {
+    // Если due === null, нужно отправить пустую строку для удаления даты
+    const body: any = { ...updates };
+    if (updates.due === null) {
+      body.due = "";
+    }
+    return await this.request<GoogleTask>(
+      `/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(taskId)}`,
+      "PATCH",
+      body,
+    );
+  }
+
+  /**
    * Delete a task from a list.
    */
   async deleteTask(taskListId: string, taskId: string): Promise<void> {
