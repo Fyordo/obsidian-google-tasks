@@ -225,7 +225,21 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
         titleText += " (фильтр)";
       }
       header.createSpan({ cls: "ogt-title", text: titleText });
-      const refreshBtn = header.createEl("button", {
+
+      const actionsEl = header.createDiv({ cls: "ogt-header-actions" });
+
+      const addBtn = actionsEl.createEl("button", {
+        cls: "ogt-add-btn",
+        text: "+",
+      });
+      addBtn.setAttr("aria-label", "Создать задачу");
+      addBtn.addEventListener("click", () => {
+        new AddTaskModal(this.app, this, targetListId, params, () => {
+          this.renderTasksBlock(source, el, ctx);
+        }).open();
+      });
+
+      const refreshBtn = actionsEl.createEl("button", {
         cls: "ogt-refresh-btn",
         text: "↻ Обновить",
       });
@@ -281,6 +295,37 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
       const cb = row.createEl("input", { cls: "ogt-checkbox" }) as HTMLInputElement;
       cb.type = "checkbox";
       cb.checked = task.status === "completed";
+      
+      // Make checkbox interactive
+      cb.addEventListener("change", async (e) => {
+        const newChecked = cb.checked;
+        const oldStatus = task.status;
+        
+        cb.disabled = true; // Disable during API call
+        
+        try {
+          await this.api.updateTaskStatus(listId, task.id, newChecked);
+          
+          // Update local state
+          task.status = newChecked ? "completed" : "needsAction";
+          
+          // Update visual state
+          if (newChecked) {
+            titleEl.addClass("is-completed");
+          } else {
+            titleEl.removeClass("is-completed");
+          }
+          
+          new Notice(newChecked ? "Задача выполнена" : "Задача возобновлена");
+        } catch (err: unknown) {
+          // Revert on error
+          cb.checked = oldStatus === "completed";
+          const msg = err instanceof Error ? err.message : String(err);
+          new Notice(`Ошибка: ${msg}`, 5000);
+        } finally {
+          cb.disabled = false;
+        }
+      });
 
       /* body */
       const body = row.createDiv({ cls: "ogt-task-body" });
@@ -645,6 +690,151 @@ class AuthCodeModal extends Modal {
 }
 
 /* ================================================================
+   Add Task Modal
+   ================================================================ */
+
+class AddTaskModal extends Modal {
+  private plugin: ObsidianGoogleTasksPlugin;
+  private listId: string;
+  private params: BlockParams;
+  private onCreated: () => void;
+
+  constructor(
+    app: App,
+    plugin: ObsidianGoogleTasksPlugin,
+    listId: string,
+    params: BlockParams,
+    onCreated: () => void,
+  ) {
+    super(app);
+    this.plugin = plugin;
+    this.listId = listId;
+    this.params = params;
+    this.onCreated = onCreated;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl("h3", { text: "Новая задача Google Tasks" });
+
+    const titleInput = contentEl.createEl("input", {
+      type: "text",
+    }) as HTMLInputElement;
+    titleInput.placeholder = "Название задачи";
+    titleInput.style.width = "100%";
+    titleInput.style.marginBottom = "8px";
+
+    // Date input
+    const dateInput = contentEl.createEl("input", {
+      type: "date",
+    }) as HTMLInputElement;
+    dateInput.style.width = "100%";
+    dateInput.style.marginBottom = "6px";
+
+    // Pre-fill date from current filter or today
+    const baseDate = this.params.from ?? new Date();
+    const yyyy = baseDate.getFullYear();
+    const mm = String(baseDate.getMonth() + 1).padStart(2, "0");
+    const dd = String(baseDate.getDate()).padStart(2, "0");
+    dateInput.value = `${yyyy}-${mm}-${dd}`;
+
+    // Time input (optional)
+    const timeInput = contentEl.createEl("input", {
+      type: "time",
+    }) as HTMLInputElement;
+    timeInput.style.width = "100%";
+    timeInput.style.marginBottom = "8px";
+
+    const notesInput = contentEl.createEl("textarea") as HTMLTextAreaElement;
+    notesInput.placeholder = "Описание (необязательно)";
+    notesInput.style.width = "100%";
+    notesInput.style.minHeight = "60px";
+    notesInput.style.marginBottom = "12px";
+
+    const infoEl = contentEl.createDiv({ cls: "setting-item-description" });
+    infoEl.textContent =
+      "Выберите дату и (опционально) время для новой задачи. По умолчанию используется дата текущего фильтра (или сегодня).";
+
+    const statusEl = contentEl.createDiv();
+
+    const btnRow = contentEl.createDiv();
+    btnRow.style.display = "flex";
+    btnRow.style.justifyContent = "flex-end";
+    btnRow.style.gap = "8px";
+
+    const cancelBtn = btnRow.createEl("button", { text: "Отмена" });
+    cancelBtn.addEventListener("click", () => this.close());
+
+    const createBtn = btnRow.createEl("button", {
+      text: "Создать",
+      cls: "mod-cta",
+    });
+
+    createBtn.addEventListener("click", async () => {
+      const title = titleInput.value.trim();
+      const notes = notesInput.value.trim();
+
+      if (!title) {
+        statusEl.textContent = "Введите название задачи.";
+        statusEl.style.color = "var(--text-error)";
+        return;
+      }
+
+      createBtn.setAttr("disabled", "true");
+      cancelBtn.setAttr("disabled", "true");
+      statusEl.textContent = "Создание задачи…";
+      statusEl.style.color = "var(--text-muted)";
+
+      try {
+        let due: string | undefined;
+        const dateStr = dateInput.value.trim();
+        const timeStr = timeInput.value.trim();
+
+        if (dateStr) {
+          const [y, m, d] = dateStr.split("-").map((v) => parseInt(v, 10));
+          if (!Number.isNaN(y) && !Number.isNaN(m) && !Number.isNaN(d)) {
+            let hours = 0;
+            let minutes = 0;
+            if (timeStr) {
+              const [h, min] = timeStr.split(":").map((v) => parseInt(v, 10));
+              if (!Number.isNaN(h) && !Number.isNaN(min)) {
+                hours = h;
+                minutes = min;
+              }
+            }
+            // Локальное время пользователя → ISO (RFC3339) для Google Tasks
+            const local = new Date(y, m - 1, d, hours, minutes, 0);
+            due = local.toISOString();
+          }
+        }
+
+        await this.plugin.api.createTask(this.listId, {
+          title,
+          notes: notes || undefined,
+          due,
+        });
+
+        new Notice("Задача создана в Google Tasks.");
+        this.onCreated();
+        this.close();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        statusEl.textContent = `Ошибка: ${msg}`;
+        statusEl.style.color = "var(--text-error)";
+        createBtn.removeAttribute("disabled");
+        cancelBtn.removeAttribute("disabled");
+      }
+    });
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+/* ================================================================
    Settings Tab
    ================================================================ */
 
@@ -737,6 +927,12 @@ class GoogleTasksSettingTab extends PluginSettingTab {
 
     /* ---- auth section ---- */
     containerEl.createEl("h3", { text: "Авторизация" });
+
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+    }).innerHTML =
+      "<b>Важно:</b> Для выполнения задач требуется полный доступ к Google Tasks API. " +
+      "Если вы авторизовались ранее, выйдите и войдите снова для получения расширенных прав.";
 
     if (this.plugin.auth.isAuthenticated()) {
       new Setting(containerEl)

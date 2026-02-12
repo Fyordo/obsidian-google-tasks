@@ -51,6 +51,28 @@
   color: var(--text-normal);
 }
 
+.ogt-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ogt-add-btn {
+  background: none;
+  border: none;
+  color: var(--text-accent);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-weight: 600;
+  transition: background 0.15s, color 0.15s;
+}
+.ogt-add-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
 /* ---- task list ---- */
 .ogt-list {
   list-style: none;
@@ -83,8 +105,13 @@
   height: 18px;
   margin-top: 2px;
   accent-color: var(--interactive-accent);
-  cursor: default;
-  pointer-events: none; /* read-only for now */
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.ogt-checkbox:disabled {
+  cursor: wait;
+  opacity: 0.5;
 }
 
 /* ---- open button ---- */

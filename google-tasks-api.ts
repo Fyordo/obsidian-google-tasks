@@ -38,14 +38,24 @@ export class GoogleTasksApi {
     this.auth = auth;
   }
 
-  private async request<T>(endpoint: string): Promise<T> {
+  private async request<T>(endpoint: string, method = "GET", body?: unknown): Promise<T> {
     const token = await this.auth.getAccessToken();
-    const resp = await requestUrl({
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    
+    const options: any = {
       url: `${BASE_URL}${endpoint}`,
-      headers: { Authorization: `Bearer ${token}` },
-    });
+      method,
+      headers,
+    };
 
-    if (resp.json.error) {
+    if (body) {
+      headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(body);
+    }
+
+    const resp = await requestUrl(options);
+
+    if (resp.json?.error) {
       throw new Error(
         `Google Tasks API error: ${resp.json.error.message ?? resp.json.error}`,
       );
@@ -80,6 +90,46 @@ export class GoogleTasksApi {
       `/lists/${encodeURIComponent(taskListId)}/tasks?${params.toString()}`,
     );
     return data.items ?? [];
+  }
+
+  /**
+   * Create a new task in a list.
+   */
+  async createTask(
+    taskListId: string,
+    input: {
+      title: string;
+      notes?: string;
+      due?: string; // RFC 3339
+      parent?: string;
+    },
+  ): Promise<GoogleTask> {
+    return await this.request<GoogleTask>(
+      `/lists/${encodeURIComponent(taskListId)}/tasks`,
+      "POST",
+      input,
+    );
+  }
+
+  /**
+   * Update task status (complete/uncomplete)
+   * @param taskListId  list id
+   * @param taskId  task id
+   * @param completed  whether the task should be marked as completed
+   */
+  async updateTaskStatus(
+    taskListId: string,
+    taskId: string,
+    completed: boolean,
+  ): Promise<GoogleTask> {
+    const status = completed ? "completed" : "needsAction";
+    const body = { status };
+    
+    return await this.request<GoogleTask>(
+      `/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(taskId)}`,
+      "PATCH",
+      body,
+    );
   }
 
   /**

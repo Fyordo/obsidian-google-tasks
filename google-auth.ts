@@ -3,7 +3,7 @@ import { requestUrl } from "obsidian";
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const REDIRECT_URI = "http://127.0.0.1";
-const SCOPES = "https://www.googleapis.com/auth/tasks.readonly";
+const SCOPES = "https://www.googleapis.com/auth/tasks";
 
 export interface TokenData {
   access_token: string;
