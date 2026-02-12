@@ -361,6 +361,28 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
         window.open(url, "_blank");
       });
 
+      /* delete button */
+      const deleteBtn = row.createEl("button", { cls: "ogt-delete-btn" });
+      deleteBtn.innerHTML = "✕";
+      deleteBtn.title = "Удалить задачу";
+      deleteBtn.addEventListener("click", async () => {
+        const confirmed = window.confirm(`Удалить задачу "${task.title}"?`);
+        if (!confirmed) return;
+
+        deleteBtn.setAttr("disabled", "true");
+
+        try {
+          await this.api.deleteTask(listId, task.id);
+          new Notice("Задача удалена.");
+          // Убираем строку из интерфейса
+          row.detach();
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          new Notice(`Ошибка при удалении: ${msg}`, 5000);
+          deleteBtn.removeAttribute("disabled");
+        }
+      });
+
       /* subtasks */
       if (node.children.length > 0) {
         this.renderNodes(parentEl, node.children, depth + 1, listId);
@@ -795,14 +817,22 @@ class AddTaskModal extends Modal {
         if (dateStr) {
           const [y, m, d] = dateStr.split("-").map((v) => parseInt(v, 10));
           if (!Number.isNaN(y) && !Number.isNaN(m) && !Number.isNaN(d)) {
-            let hours = 0;
-            let minutes = 0;
+            let hours: number;
+            let minutes: number;
             if (timeStr) {
               const [h, min] = timeStr.split(":").map((v) => parseInt(v, 10));
               if (!Number.isNaN(h) && !Number.isNaN(min)) {
                 hours = h;
                 minutes = min;
+              } else {
+                // Если время указано криво — fallback на полдень
+                hours = 12;
+                minutes = 0;
               }
+            } else {
+              // Без времени: используем полдень, чтобы избежать сдвига даты из‑за часовых поясов
+              hours = 12;
+              minutes = 0;
             }
             // Локальное время пользователя → ISO (RFC3339) для Google Tasks
             const local = new Date(y, m - 1, d, hours, minutes, 0);

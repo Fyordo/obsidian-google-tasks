@@ -133,6 +133,20 @@ export class GoogleTasksApi {
   }
 
   /**
+   * Delete a task from a list.
+   */
+  async deleteTask(taskListId: string, taskId: string): Promise<void> {
+    // Для DELETE Google Tasks API часто возвращает пустой ответ (204 No Content),
+    // поэтому используем прямой вызов requestUrl без разбора JSON.
+    const token = await this.auth.getAccessToken();
+    await requestUrl({
+      url: `${BASE_URL}/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(taskId)}`,
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+
+  /**
    * Build a tree from a flat task list (respecting parent → child).
    */
   static buildTree(tasks: GoogleTask[]): TaskNode[] {

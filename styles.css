@@ -139,6 +139,30 @@
   color: var(--text-accent);
 }
 
+.ogt-delete-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  margin-top: 0;
+  margin-left: 2px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ogt-delete-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-error, #e53935);
+}
+
 /* ---- task body ---- */
 .ogt-task-body {
   flex: 1;
