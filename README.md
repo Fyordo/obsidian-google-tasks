@@ -1,202 +1,228 @@
 # Obsidian Google Tasks
 
-Obsidian plugin to integrate Google Tasks with your vault.
+An Obsidian plugin that integrates Google Tasks with your vault. View and manage your tasks directly in your notes.
 
-> **Status**: skeleton plugin, no real Google Tasks sync yet.
+## Features
 
-## Разработка
+- Display Google Tasks in code blocks
+- Filter by date range and task list
+- Create, complete, edit, and delete tasks
+- Markdown formatting support in task titles and notes
+- Works on desktop and mobile (Android / iOS)
 
-1. Установите зависимости:
+## Installation
 
-```bash
-npm install
-```
+### Development Setup
 
-2. Соберите плагин в режиме разработки:
+1. Clone this repository into your Obsidian plugins folder:
 
-```bash
-npm run dev
-```
+   - **macOS**: `~/Library/Application Support/obsidian/Community Plugins/obsidian-google-tasks`
+   - **Windows**: `%APPDATA%\Obsidian\Community Plugins\obsidian-google-tasks`
 
-или одноразовая сборка:
+2. Install dependencies:
 
-```bash
-npm run build
-```
+   ```bash
+   npm install
+   ```
 
-3. Скопируйте содержимое этой папки в каталог плагинов Obsidian, например:
+3. Build the plugin:
 
-- macOS: `~/Library/Application Support/obsidian/Community Plugins/obsidian-google-tasks`
+   ```bash
+   npm run build
+   ```
 
-4. Включите плагин в настройках Obsidian.
+4. In Obsidian:
+   - Go to **Settings → Community plugins**
+   - Enable **Developer mode** (if needed)
+   - Enable **Obsidian Google Tasks**
 
-## Использование
+## Google API Setup
 
-### Базовое использование
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project (or select an existing one)
+3. Enable **Google Tasks API**:
+   - Navigate to **APIs & Services → Library**
+   - Search for "Google Tasks API"
+   - Click **Enable**
+4. Configure **OAuth consent screen**:
+   - Go to **APIs & Services → OAuth consent screen**
+   - Choose **External** user type
+   - Fill in required fields (app name, support email)
+   - Add scope: `https://www.googleapis.com/auth/tasks`
+   - Add yourself as a **test user**
+5. Create **OAuth 2.0 Client ID**:
+   - Go to **APIs & Services → Credentials**
+   - Click **Create Credentials → OAuth client ID**
+   - Application type: **Desktop app**
+   - Copy the **Client ID** and **Client Secret**
 
-Добавьте в любую заметку блок:
+### Configure in Obsidian
+
+1. Open **Settings → Obsidian Google Tasks**
+2. Paste your **Client ID** and **Client Secret**
+3. Click **Sign in with Google**
+4. Follow the authorization flow:
+   - Click the button to open Google's authorization page
+   - Grant permissions
+   - Copy the redirect URL from your browser
+   - Paste it into the plugin modal
+
+> **Note**: For full functionality (create/edit/delete tasks), the plugin requires the `tasks` scope. If you previously authorized with `tasks.readonly`, sign out and sign in again.
+
+## Usage
+
+### Basic Example
+
+Add a code block to any note:
 
 ````markdown
 ```g-tasks
 ```
 ````
 
-Все задачи из вашего основного списка Google Tasks будут отображены.
+This displays tasks from your **default Google Tasks list**.
 
-### Выбор списка задач
+### Parameters
 
-**Задачи из конкретного списка:**
+You can filter tasks using parameters:
+
+```markdown
+```g-tasks
+list: Work
+date: today
+completed: all
+```
+```
+
+**Available parameters:**
+
+- **`list`** — Task list name (case-insensitive) or list ID
+- **`date`**:
+  - `today` — Today's date
+  - `{{filename}}` — Extract date from filename (format: `DD.MM.YYYY.md`)
+- **`from` / `to`** — Custom date range (`YYYY-MM-DD HH:MM:SS`)
+- **`completed`**:
+  - `false` — Only incomplete tasks (default)
+  - `true` — Only completed tasks
+  - `all` — All tasks
+
+### Examples
+
+**Tasks from a specific list:**
 
 ````markdown
 ```g-tasks
-list: Работа
+list: Work
 ```
 ````
 
-Можно указать название списка (регистр не важен) или его ID.
-
-### Фильтрация по дате
-
-**Задачи за конкретный день (автоматически из имени файла):**
-
-Если ваша заметка называется `11.02.2026.md`, добавьте:
-
-````markdown
-```g-tasks
-date: {{filename}}
-```
-````
-
-Плагин автоматически извлечёт дату `11.02.2026` и покажет задачи только за этот день.
-
-**Задачи за сегодня:**
+**Tasks for today:**
 
 ````markdown
 ```g-tasks
 date: today
-```
-````
-
-**Задачи за произвольный период:**
-
-````markdown
-```g-tasks
-from: 2026-01-01 00:00:00
-to: 2026-01-31 23:59:59
-```
-````
-
-### Фильтр по статусу выполнения
-
-Параметр `completed` управляет отображением задач по статусу:
-
-**Только невыполненные (по умолчанию):**
-
-````markdown
-```g-tasks
 completed: false
 ```
 ````
 
-**Только выполненные:**
-
-````markdown
-```g-tasks
-completed: true
-```
-````
-
-**Все задачи (и выполненные, и невыполненные):**
-
-````markdown
-```g-tasks
-completed: all
-```
-````
-
-### Комбинация параметров
-
-Можно комбинировать несколько параметров:
-
-````markdown
-```g-tasks
-list: Работа
-date: {{filename}}
-completed: all
-```
-````
-
-Покажет **только невыполненные** задачи из списка «Работа» за день, указанный в имени файла.
-
-Или все задачи (включая выполненные):
-
-````markdown
-```g-tasks
-list: Личное
-date: today
-completed: all
-```
-````
-
-Или только выполненные за период:
+**Tasks for a date range:**
 
 ````markdown
 ```g-tasks
 from: 2026-02-01 00:00:00
 to: 2026-02-28 23:59:59
-completed: true
+completed: all
 ```
 ````
 
-### Использование в шаблонах Daily Notes
+**Tasks from filename date:**
 
-Если используете ежедневные заметки в формате `DD.MM.YYYY.md`, добавьте в шаблон:
+If your note is named `11.02.2026.md`:
 
 ````markdown
-## Задачи на день
-
 ```g-tasks
 date: {{filename}}
 ```
 ````
 
-Или для конкретного списка:
+## Daily Notes Template
+
+For daily notes in `DD.MM.YYYY.md` format, add to your template:
 
 ````markdown
-## Рабочие задачи
+## Today's Tasks
 
 ```g-tasks
-list: Работа
 date: {{filename}}
+completed: all
 ```
 ````
 
-Каждая новая заметка автоматически покажет задачи за соответствующий день.
+Or for a specific list:
 
-## Автообновление
+````markdown
+## Work Tasks
 
-Плагин поддерживает автоматическое обновление списков задач через заданный интервал.
+```g-tasks
+list: Work
+date: {{filename}}
+completed: false
+```
+````
 
-1. Откройте **Настройки → Obsidian Google Tasks**
-2. В поле **«Автообновление»** укажите интервал в секундах (например, `60` для обновления раз в минуту)
-3. Оставьте `0`, чтобы отключить автообновление
+## Task Interactions
 
-Все открытые блоки `g-tasks` будут обновляться автоматически с указанным интервалом.
+In the rendered task list:
 
-## Markdown-форматирование
+- **Checkbox** — Toggle task completion (syncs with Google Tasks)
+- **`+` button** — Create a new task
+- **`✎` button** — Edit task (title, notes, date/time)
+- **`✕` button** — Delete task (with confirmation)
+- **`↗` button** — Open task in Google Tasks (browser or mobile app)
 
-Плагин поддерживает базовое Markdown-форматирование в названиях и описаниях задач:
+## Markdown Formatting
 
-- **Жирный текст**: `**текст**` или `__текст__`
-- *Курсив*: `*текст*` или `_текст_`
-- `Код`: `` `код` ``
-- Ссылки на заметки: `[[Название заметки]]` — кликабельны, открывают заметку в Obsidian
-- Внешние ссылки: `[текст](https://example.com)`
+The plugin supports basic Markdown in task titles and notes:
 
-Пример задачи в Google Tasks:
+- **Bold**: `**text**` or `__text__`
+- *Italic*: `*text*` or `_text_`
+- `Code`: `` `code` ``
+- **Internal links**: `[[Note Name]]` — Opens the note in Obsidian
+- **External links**: `[text](https://example.com)`
+
+**Example task in Google Tasks:**
 
 ```
-Прочитать статью **Obsidian API** и добавить заметки в [[Проекты/База знаний]]
+Read **Obsidian API** docs and update [[Knowledge Base]]
 ```
 
-Будет отображаться с форматированием и кликабельной ссылкой на заметку.
+Will be rendered with bold text and a clickable internal link.
+
+## Auto Refresh
+
+Enable automatic refresh of all visible `g-tasks` blocks:
+
+1. Open **Settings → Obsidian Google Tasks**
+2. Set **Auto refresh** interval (in seconds):
+   - `0` — Disabled (default)
+   - e.g., `60` — Refresh every minute
+
+All open blocks will update automatically at the specified interval.
+
+## Development
+
+**Watch mode** (auto-rebuild on changes):
+
+```bash
+npm run dev
+```
+
+**Production build**:
+
+```bash
+npm run build
+```
+
+## License
+
+MIT

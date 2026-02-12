@@ -220,11 +220,7 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
 
       /* header */
       const header = container.createDiv({ cls: "ogt-header" });
-      let titleText = listTitle;
-      if (params.from || params.to) {
-        titleText += " (фильтр)";
-      }
-      header.createSpan({ cls: "ogt-title", text: titleText });
+      header.createSpan({ cls: "ogt-title", text: listTitle });
 
       const actionsEl = header.createDiv({ cls: "ogt-header-actions" });
 
