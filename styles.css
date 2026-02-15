@@ -212,6 +212,47 @@
   word-break: break-word;
 }
 
+/* lists and checkboxes in notes */
+.ogt-task-notes .ogt-notes-list {
+  margin: 4px 0 0 0;
+  padding-left: 1.2em;
+  list-style-position: outside;
+}
+.ogt-task-notes .ogt-notes-list.ogt-notes-list {
+  list-style-type: disc;
+}
+.ogt-task-notes ol.ogt-notes-list {
+  list-style-type: decimal;
+}
+.ogt-task-notes .ogt-notes-item {
+  margin: 2px 0;
+}
+.ogt-task-notes .ogt-notes-item-checkbox {
+  list-style: none;
+  margin-left: -1.2em;
+  padding-left: 1.2em;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.ogt-task-notes .ogt-notes-checkbox {
+  flex-shrink: 0;
+  margin: 0;
+  vertical-align: middle;
+  cursor: pointer;
+  accent-color: var(--text-accent);
+}
+.ogt-task-notes .ogt-notes-checkbox:disabled {
+  cursor: wait;
+}
+.ogt-task-notes .ogt-notes-checkbox-label {
+  flex: 1;
+}
+.ogt-task-notes .ogt-notes-checkbox:checked + .ogt-notes-checkbox-label {
+  text-decoration: line-through;
+  color: var(--text-faint, var(--text-muted));
+}
+
 /* ---- markdown formatting ---- */
 .ogt-task-title strong,
 .ogt-task-notes strong {

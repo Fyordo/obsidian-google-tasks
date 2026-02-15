@@ -276,6 +276,60 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
     });
   }
 
+  /** Attach change handlers to checkboxes in task notes; updates notes in Google Tasks. */
+  private attachNotesCheckboxHandlers(
+    notesEl: HTMLElement,
+    listId: string,
+    taskId: string,
+    initialNotes: string,
+  ) {
+    const STORAGE_KEY = "data-ogt-notes-b64";
+    const getNotes = (): string => {
+      const b64 = notesEl.getAttribute(STORAGE_KEY);
+      if (b64) {
+        try {
+          return decodeURIComponent(escape(atob(b64)));
+        } catch {
+          return initialNotes;
+        }
+      }
+      return initialNotes;
+    };
+    const setNotes = (notes: string) => {
+      notesEl.setAttribute(STORAGE_KEY, btoa(unescape(encodeURIComponent(notes))));
+    };
+    setNotes(initialNotes);
+
+    const checkboxes = notesEl.querySelectorAll<HTMLInputElement>("input.ogt-notes-checkbox[data-ogt-line]");
+    checkboxes.forEach((cb) => {
+      const lineIndex = parseInt(cb.getAttribute("data-ogt-line") ?? "-1", 10);
+      if (lineIndex < 0) return;
+
+      cb.addEventListener("change", async () => {
+        const newChecked = cb.checked;
+        cb.disabled = true;
+        try {
+          const notes = getNotes();
+          const lines = notes.split("\n");
+          if (lineIndex >= lines.length) return;
+          const newLine = toggleCheckboxInLine(lines[lineIndex]);
+          if (newLine === lines[lineIndex]) return;
+          lines[lineIndex] = newLine;
+          const newNotes = lines.join("\n");
+          await this.api.updateTask(listId, taskId, { notes: newNotes });
+          setNotes(newNotes);
+          new Notice(newChecked ? "Отмечено" : "Снято");
+        } catch (err: unknown) {
+          cb.checked = !newChecked;
+          const msg = err instanceof Error ? err.message : String(err);
+          new Notice(`Ошибка: ${msg}`, 5000);
+        } finally {
+          cb.disabled = false;
+        }
+      });
+    });
+  }
+
   /** Recursively render task tree nodes */
   private renderNodes(
     parentEl: HTMLElement,
@@ -343,6 +397,7 @@ export default class ObsidianGoogleTasksPlugin extends Plugin {
         const notesEl = body.createDiv({ cls: "ogt-task-notes" });
         notesEl.innerHTML = parseSimpleMarkdown(task.notes);
         this.attachLinkHandlers(notesEl);
+        this.attachNotesCheckboxHandlers(notesEl, listId, task.id, task.notes);
       }
 
       /* due date */
@@ -556,45 +611,107 @@ function parseFlexibleDate(str: string): Date | null {
    ================================================================ */
 
 /**
- * Parse simple Markdown formatting and return HTML string.
- * Supports:
- *   - **bold** or __bold__
- *   - *italic* or _italic_
- *   - [[wikilink]]
- *   - [link text](url)
- *   - `code`
+ * Toggle one checkbox line in notes: "[ ]" <-> "[x]". Preserves leading - or *.
  */
-function parseSimpleMarkdown(text: string): string {
-  let result = text;
+function toggleCheckboxInLine(line: string): string {
+  const unchecked = line.replace(/^(\s*[-*]\s+)\[ \](\s*.*)$/, "$1[x]$2");
+  if (unchecked !== line) return unchecked;
+  const checked = line.replace(/^(\s*[-*]\s+)\[x\](\s*.*)$/i, "$1[ ]$2");
+  return checked !== line ? checked : line;
+}
 
-  // Escape HTML first
-  result = result
+/**
+ * Parse inline Markdown (bold, italic, links, code) — no newlines.
+ */
+function parseInlineMarkdown(text: string): string {
+  let result = text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
-  // Bold: **text** or __text__
   result = result.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   result = result.replace(/__(.+?)__/g, "<strong>$1</strong>");
-
-  // Italic: *text* or _text_ (but not inside words)
   result = result.replace(/\*(.+?)\*/g, "<em>$1</em>");
   result = result.replace(/(?<!\w)_(.+?)_(?!\w)/g, "<em>$1</em>");
-
-  // Wikilinks: [[Page Name]]
-  result = result.replace(/\[\[(.+?)\]\]/g, (match, linkText) => {
+  result = result.replace(/\[\[(.+?)\]\]/g, (_m, linkText: string) => {
     return `<a class="internal-link" data-href="${linkText}">${linkText}</a>`;
   });
-
-  // Markdown links: [text](url)
-  result = result.replace(/\[(.+?)\]\((.+?)\)/g, (match, text, url) => {
+  result = result.replace(/\[(.+?)\]\((.+?)\)/g, (_m, text: string, url: string) => {
     return `<a href="${url}" class="external-link" target="_blank" rel="noopener">${text}</a>`;
   });
-
-  // Inline code: `code`
   result = result.replace(/`(.+?)`/g, "<code>$1</code>");
-
   return result;
+}
+
+/**
+ * Parse full Markdown: inline formatting + lists and checkboxes in notes.
+ * - Lists: lines starting with `- `, `* `, or `1. `
+ * - Checkboxes: `- [ ]` and `- [x]` (or `* [ ]` / `* [x]`)
+ * Checkbox inputs get data-ogt-line attribute (0-based line index) for toggle handling.
+ */
+function parseSimpleMarkdown(text: string): string {
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let listKind: "ul" | "ol" | null = null;
+
+  function closeList() {
+    if (listKind === "ul") out.push("</ul>");
+    else if (listKind === "ol") out.push("</ol>");
+    listKind = null;
+  }
+
+  function openList(kind: "ul" | "ol") {
+    if (listKind === kind) return;
+    closeList();
+    listKind = kind;
+    out.push(kind === "ul" ? '<ul class="ogt-notes-list">' : '<ol class="ogt-notes-list">');
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const trimmed = raw.replace(/^\s+/, "");
+
+    // Checkbox: "- [ ]" or "- [x]" or "* [ ]" or "* [x]"
+    const cbMatch = trimmed.match(/^[-*]\s+\[([ xX])\]\s*(.*)$/);
+    if (cbMatch) {
+      const checked = cbMatch[1].toLowerCase() === "x";
+      const content = parseInlineMarkdown(cbMatch[2].trim());
+      openList("ul");
+      out.push(
+        `<li class="ogt-notes-item ogt-notes-item-checkbox"><input type="checkbox" class="ogt-notes-checkbox" data-ogt-line="${i}" ${checked ? "checked" : ""}><span class="ogt-notes-checkbox-label">${content}</span></li>`,
+      );
+      continue;
+    }
+
+    // Unordered list: "- " or "* " (not checkbox)
+    const ulMatch = trimmed.match(/^[-*]\s+(.+)$/);
+    if (ulMatch) {
+      const content = parseInlineMarkdown(ulMatch[1]);
+      openList("ul");
+      out.push(`<li class="ogt-notes-item">${content}</li>`);
+      continue;
+    }
+
+    // Ordered list: "1. ", "2. ", ...
+    const olMatch = trimmed.match(/^(\d+)\.\s+(.+)$/);
+    if (olMatch) {
+      const content = parseInlineMarkdown(olMatch[2]);
+      openList("ol");
+      out.push(`<li class="ogt-notes-item">${content}</li>`);
+      continue;
+    }
+
+    closeList();
+    if (trimmed) {
+      out.push(parseInlineMarkdown(trimmed));
+      if (i < lines.length - 1) out.push("<br>");
+    } else {
+      out.push("<br>");
+    }
+  }
+
+  closeList();
+  return out.join("");
 }
 
 /* ================================================================
